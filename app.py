@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 from transformers import pipeline
-import torch
 
 # Set page configuration
 st.set_page_config(page_title="Wikipedia Search App", layout="wide")
@@ -9,45 +8,14 @@ st.set_page_config(page_title="Wikipedia Search App", layout="wide")
 # Title of the app
 st.title("Wikipedia Search App")
 
-# write a brief introduction to the app 
+# Updated introduction
 st.markdown("""
-This app allows you to search Wikipedia for a given term and displays the top 5 search results.
-For each result, it shows the introduction text, an image (if available), and the categories of the article.
-The categories are predicted using a zero-shot classification model.
-            
-The app uses the Hugging Face Transformers library and the Facebook BART model for zero-shot classification.
-It also uses the Wikipedia API to retrieve search results and article content.
-The categories include: Person, Organization, Location, Event, Product, Work of Art, and Other.
-            
-To get started, enter a search term in the text box below and click the 'Search' button.
+This app allows you to search Wikipedia for a given term and displays the top 5 search results. For each result, it shows the **introduction text**, an **image** (if available), and the **categories** of the article. The categories are predicted using a zero-shot classification model.
+
+The app uses the **Hugging Face Transformers** library and a smaller version of the **BART** model for zero-shot classification to improve performance. It also uses the **Wikipedia API** to retrieve search results and article content. The categories include: **Person**, **Organization**, **Location**, **Event**, **Product**, **Work of Art**, and **Other**.
+
+To get started, enter a search term in the text box below and click the **'Search'** button.
 """)
-
-
-
-# Check if CUDA (GPU) is available
-
-# Check if MPS (Metal Performance Shaders) is available (for M1/M2 Macs)
-if torch.backends.mps.is_available():
-    device = 0  # MPS devices are assigned device IDs starting from 0
-    st.write("Using MPS device")
-elif torch.cuda.is_available():
-    device = 0  # CUDA device
-    st.write("Using CUDA device")
-else:
-    device = -1  # CPU
-    st.write("Using CPU device")
-
-# Initialize the zero-shot classification pipeline
-@st.cache_resource(show_spinner=False)
-def load_classifier():
-    classifier = pipeline(
-        'zero-shot-classification',
-        model='facebook/bart-large-mnli',
-        device=device
-    )
-    return classifier
-
-classifier = load_classifier()
 
 # Define candidate labels (categories)
 candidate_labels = ['Person', 'Organization', 'Location', 'Event', 'Product', 'Work of Art', 'Other']
@@ -56,17 +24,8 @@ candidate_labels = ['Person', 'Organization', 'Location', 'Event', 'Product', 'W
 search_term = st.text_input("Enter a search term:", value="the magic roundabout")
 
 if st.button("Search"):
-    # Start rendering outputs immediately
-    # We can use a placeholder for progress bar
-    progress_bar = st.progress(0)
-    total_steps = 5  # Number of articles
-    step = 0
-
-    # Use a container to hold the search results
-    results_container = st.container()
-
+    # Step 1: Search Wikipedia and get top 5 results
     with st.spinner("Searching Wikipedia..."):
-        # Step 1: Search Wikipedia and get top 5 results
         search_url = "https://en.wikipedia.org/w/api.php"
 
         search_params = {
@@ -80,14 +39,37 @@ if st.button("Search"):
         response = requests.get(search_url, params=search_params)
         data = response.json()
 
-        # Step 2: Retrieve the titles of the top 5 results
+        # Retrieve the titles of the top 5 results
         search_results = data['query']['search']
         titles = [result['title'] for result in search_results]
 
-    # For each title, retrieve introduction and image, and process it
-    for idx, title in enumerate(titles):
-        with st.spinner(f"Processing article {idx+1}/{len(titles)}: {title}"):
-            # Step 3: Retrieve content for the title
+    # Step 2: Display preliminary information and placeholders
+    st.write("## Search Results")
+    article_placeholders = []
+    for title in titles:
+        # Create a placeholder for the entire article
+        article_placeholder = st.empty()
+        article_placeholders.append(article_placeholder)
+        # Display initial loading message
+        article_placeholder.markdown(f"### {title}\nLoading article content and categories...")
+
+    # Step 3: Load the classifier once (if not already loaded)
+    if 'classifier' not in st.session_state:
+        with st.spinner("Loading classification model... This may take a while."):
+            # Initialize the zero-shot classification pipeline with a smaller model
+            classifier = pipeline(
+                'zero-shot-classification',
+                model='valhalla/distilbart-mnli-12-1',  # Smaller model for faster performance
+                device=-1  # Force CPU usage; adjust if GPU is available
+            )
+        st.session_state['classifier'] = classifier
+    else:
+        classifier = st.session_state['classifier']
+
+    # Step 4: Process each article sequentially
+    for idx, (title, article_placeholder) in enumerate(zip(titles, article_placeholders)):
+        with st.spinner(f"Processing article {idx + 1}/{len(titles)}: {title}"):
+            # Retrieve content for the title
             content_url = "https://en.wikipedia.org/w/api.php"
 
             content_params = {
@@ -95,7 +77,7 @@ if st.button("Search"):
                 'format': 'json',
                 'prop': 'extracts|pageimages',
                 'exintro': True,       # Get only the introduction part
-                'explaintext': True,   # Get plain text content for NLP processing
+                'explaintext': True,   # Get plain text content
                 'titles': title,
                 'piprop': 'thumbnail',  # Get page thumbnail
                 'pithumbsize': 200,     # Set thumbnail size
@@ -109,8 +91,30 @@ if st.button("Search"):
             page = next(iter(pages.values()))
             page_title = page.get('title', '')
             page_url = "https://en.wikipedia.org/wiki/" + page_title.replace(' ', '_')
-            extract = page.get('extract', '')
+            extract = page.get('extract', 'No introduction available.')
             thumbnail = page.get('thumbnail', {}).get('source', '')
+
+            # Limit the introduction text to improve processing speed
+            max_length = 512  # Adjust as needed
+            extract = extract[:max_length]
+
+            # Update the article placeholder with article content
+            with article_placeholder.container():
+                st.markdown(f"### {page_title}")
+                st.write(f"**URL:** [{page_url}]({page_url})")
+                cols = st.columns([1, 3])
+
+                with cols[0]:
+                    if thumbnail:
+                        st.image(thumbnail, use_column_width=True)
+                    else:
+                        st.write("No image available")
+
+                with cols[1]:
+                    st.write(extract)
+                    # Placeholder for categories
+                    category_placeholder = st.empty()
+                    category_placeholder.write("Categorizing...")
 
             # Perform zero-shot classification on the introduction text
             if extract:
@@ -123,30 +127,8 @@ if st.button("Search"):
             else:
                 categories_with_probs = [('Unknown', 0.0)]
 
-            # Display the result for this article
-            with results_container:
-                st.markdown(f"### {page_title}")
-                st.write(f"**URL:** [{page_url}]({page_url})")
-
-                cols = st.columns([1, 3])
-
-                with cols[0]:
-                    if thumbnail:
-                        st.image(thumbnail, use_column_width=True)
-                    else:
-                        st.write("No image available")
-
-                with cols[1]:
-                    st.write(extract)
-                    st.write("**Categories with probabilities:**")
-                    for label, score in categories_with_probs:
-                        st.write(f"- {label}: {score}")
-
-                st.markdown("---")
-
-            # Update the progress bar
-            step += 1
-            progress_bar.progress(step / total_steps)
-
-    # When done, remove the progress bar
-    progress_bar.empty()
+            # Update the category placeholder with categories
+            category_text = "**Categories with probabilities:**\n"
+            for label, score in categories_with_probs:
+                category_text += f"- {label}: {score}\n"
+            category_placeholder.markdown(category_text)
