@@ -9,6 +9,23 @@ st.set_page_config(page_title="Wikipedia Search App", layout="wide")
 # Title of the app
 st.title("Wikipedia Search App")
 
+# write a brief introduction to the app 
+st.markdown("""
+This app allows you to search Wikipedia for a given term and displays the top 5 search results.
+For each result, it shows the introduction text, an image (if available), and the categories of the article.
+The categories are predicted using a zero-shot classification model.
+            
+The app uses the Hugging Face Transformers library and the Facebook BART model for zero-shot classification.
+It also uses the Wikipedia API to retrieve search results and article content.
+The categories include: Person, Organization, Location, Event, Product, Work of Art, and Other.
+            
+To get started, enter a search term in the text box below and click the 'Search' button.
+""")
+
+
+
+# Check if CUDA (GPU) is available
+
 # Check if MPS (Metal Performance Shaders) is available (for M1/M2 Macs)
 if torch.backends.mps.is_available():
     device = 0  # MPS devices are assigned device IDs starting from 0
