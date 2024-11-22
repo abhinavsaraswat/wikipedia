@@ -46,7 +46,7 @@ tenacity==9.0.0
 tokenizers==0.20.0
 toml==0.10.2
 torch==2.4.1
-tornado==6.4.1
+tornado==6.4.2
 tqdm==4.66.5
 transformers==4.45.1
 typing_extensions==4.12.2
